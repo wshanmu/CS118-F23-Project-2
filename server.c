@@ -11,9 +11,11 @@ int main() {
     struct sockaddr_in server_addr, client_addr_from, client_addr_to;
     struct packet buffer;
     socklen_t addr_size = sizeof(client_addr_from);
-    int expected_seq_num = 0;
+    int expected_seq_num = 0, seq_num_server = 100;
     int recv_len;
     struct packet ack_pkt;
+    char payload[PAYLOAD_SIZE];
+    char last = 0;
 
     // Create a UDP socket for sending
     send_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -52,9 +54,71 @@ int main() {
     FILE *fp = fopen("output.txt", "wb");
 
     // TODO: Receive file from the client and save it as output.txt
+    while (1) {
+        // receive first handshake
+        recv_len = recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr*)&client_addr_from, &addr_size); // do we need to compare whether align?
+        if (recv_len < 0) {
+            printf("Cannot receive from client\n");
+            return 1;
+        } else {
+            printf("Receive initial packet from client\n");
+            printRecv(&buffer);
+        }
+        // return first ACK
+        expected_seq_num = buffer.seqnum + 1;
+        build_packet(&ack_pkt, seq_num_server, expected_seq_num, 0, 1, PAYLOAD_SIZE, payload);
+        if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+            printf("Cannot send message to server");
+            return 1;
+        }
+        printSend(&ack_pkt, 0);
 
-    
+        // receive third handshake
+        int segment_times;
+        recv_len = recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr*)&client_addr_from, &addr_size);
+        if (recv_len < 0) {
+            printf("Cannot receive from client\n");
+            return 1;
+        } else {
+            printRecv(&buffer);
+            printf("File segment number is %s\n", buffer.payload);
+            segment_times = atoi(buffer.payload);
+        }
 
+        // return second ACK
+        expected_seq_num = buffer.seqnum + 1;
+        build_packet(&ack_pkt, seq_num_server, expected_seq_num, 0, 1, PAYLOAD_SIZE, payload);
+        if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+            printf("Cannot send message to server");
+            return 1;
+        }
+        printSend(&ack_pkt, 0);
+
+        // receive file segments
+        for (int i = 0; i < segment_times; i++) {
+            recv_len = recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *) &client_addr_from,
+                                &addr_size); // do we need to compare whether align?
+            if (recv_len < 0) {
+                printf("Cannot receive from client\n");
+                return 1;
+            }
+            printRecv(&buffer);
+            fwrite(buffer.payload, sizeof(char),buffer.length, fp);
+            printf("Write %.3s into output\n", buffer.payload);
+            // send ack
+            expected_seq_num = buffer.seqnum + 1;
+            seq_num_server += 1;
+            build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
+            if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+                printf("Cannot send message to server");
+                return 1;
+            }
+            printSend(&ack_pkt, 0);
+        }
+        if (buffer.last == 1) {
+            break;
+        }
+    }
     fclose(fp);
     close(listen_sockfd);
     close(send_sockfd);

@@ -71,9 +71,81 @@ int main(int argc, char *argv[]) {
     }
 
     // TODO: Read from file, and initiate reliable data transfer to the server
+    // no connection establishment
+    // need to implement rdt: handshaking, seq, ack
+    // congestion control (slow start, FR/FR: 3 dup ACKs/timeout/new ACK, Congestion Avoidance)
+    // flow control (?)
 
- 
-    
+    // first handshake
+    // packet might be loss too. Need timer
+    build_packet(&pkt, seq_num, ack_num, last, ack, PAYLOAD_SIZE, buffer);
+    if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
+        printf("Cannot send message to server");
+        return 1;
+    }
+    printSend(&pkt, 0);
+
+    // receive ACK from server, expected ack=1
+    int recv_len;
+    recv_len = recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size);
+    if(recv_len < 0){
+        printf("Cannot receive ACK from server");
+        return 1;
+    }
+    printRecv(&pkt);
+
+    // third handshake and send file size right now
+    // obtain the file size
+    fseek(fp, 0, SEEK_END);  // set file indicator to the end of the file
+    long file_size = ftell(fp);  // get the current indicator (bytes)
+    fseek(fp, 0, SEEK_SET);  // set back to the beginning
+    // obtain file content
+    char *file_content = malloc(file_size);
+    fread(file_content, 1, file_size, fp);
+    int segment_times = file_size / PAYLOAD_SIZE + 1;
+    printf("times is: %d:\n", segment_times);
+
+    seq_num += 1;
+    ack_num = pkt.seqnum+1;
+    sprintf(buffer, "%d", segment_times);
+    build_packet(&pkt, seq_num, ack_num, last, ack, PAYLOAD_SIZE, buffer);
+    if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
+        printf("Cannot send message to server");
+        return 1;
+    }
+    printSend(&pkt, 0);
+
+
+    // partition the file into small segments
+    // and send segments to the server
+    int packet_len = PAYLOAD_SIZE;
+    for (int i = 0; i < segment_times; i++) {
+        if (i == segment_times - 1) {
+            packet_len = file_size - i * PAYLOAD_SIZE;
+            last = 1;
+        }
+        strncpy(buffer, file_content + i * PAYLOAD_SIZE, packet_len);
+        build_packet(&pkt, seq_num, ack_num, last, ack, packet_len, buffer);
+        if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
+            printf("Cannot send file segment to server");
+            return 1;
+        }
+        printSend(&pkt, 0);
+        // begin a timer
+
+        // wait for ACK
+        recv_len = recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size);
+        if(recv_len < 0){
+            printf("Cannot receive ACK from server");
+            return 1;
+        }
+        printRecv(&pkt);
+        if (pkt.acknum == seq_num + 1) {
+            seq_num += 1;
+            ack_num = pkt.seqnum + 1;
+        }
+    }
+
     fclose(fp);
     close(listen_sockfd);
     close(send_sockfd);

@@ -56,7 +56,7 @@ int main() {
     // TODO: Receive file from the client and save it as output.txt
     while (1) {
         // receive first handshake
-        recv_len = recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr*)&client_addr_from, &addr_size); // do we need to compare whether align?
+        recv_len = recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr*)&client_addr_from, &addr_size);
         if (recv_len < 0) {
             printf("Cannot receive from client\n");
             return 1;
@@ -73,7 +73,7 @@ int main() {
         }
         printSend(&ack_pkt, 0);
 
-        // receive third handshake
+        // receive third handshake, including the number of segments
         int segment_times;
         recv_len = recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr*)&client_addr_from, &addr_size);
         if (recv_len < 0) {
@@ -87,6 +87,7 @@ int main() {
 
         // return second ACK
         expected_seq_num = buffer.seqnum + 1;
+        seq_num_server += 1;
         build_packet(&ack_pkt, seq_num_server, expected_seq_num, 0, 1, PAYLOAD_SIZE, payload);
         if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
             printf("Cannot send message to server");
@@ -95,29 +96,35 @@ int main() {
         printSend(&ack_pkt, 0);
 
         // receive file segments
-        for (int i = 0; i < segment_times; i++) {
-            recv_len = recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *) &client_addr_from,
-                                &addr_size); // do we need to compare whether align?
-            if (recv_len < 0) {
+        while (1) {
+            if (recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *) &client_addr_from,
+                         &addr_size) < 0) {
                 printf("Cannot receive from client\n");
                 return 1;
             }
             printRecv(&buffer);
-            fwrite(buffer.payload, sizeof(char),buffer.length, fp);
-            printf("Write %.3s into output\n", buffer.payload);
-            // send ack
-            expected_seq_num = buffer.seqnum + 1;
-            seq_num_server += 1;
-            build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
-            if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
-                printf("Cannot send message to server");
-                return 1;
+//            printf("current expected seq num: %d\n", expected_seq_num);
+
+            if (buffer.seqnum == expected_seq_num) {
+                expected_seq_num += 1;
+                seq_num_server += 1;
+                fwrite(buffer.payload, sizeof(char),buffer.length, fp);
+                printf("Write %d-th segment into outpue file.\n", buffer.seqnum - 1);
             }
-            printSend(&ack_pkt, 0);
+            if (buffer.seqnum >= expected_seq_num - 1) {
+                build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
+                if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+                    printf("Cannot send message to server");
+                    return 1;
+                }
+                printSend(&ack_pkt, 0);
+            }
+
+            if (buffer.last == 1) {
+                break;
+            }
         }
-        if (buffer.last == 1) {
-            break;
-        }
+        break;
     }
     fclose(fp);
     close(listen_sockfd);

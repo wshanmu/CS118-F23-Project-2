@@ -4,9 +4,16 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/errno.h>
 
 #include "utils.h"
 
+//volatile sig_atomic_t timeout_occurred = 0;
+//
+//void handler(int sig) {
+//    printf("Timeout occur: waiting for ACK\n");
+//    timeout_occurred = 1;
+//}
 
 int main(int argc, char *argv[]) {
     int listen_sockfd, send_sockfd;
@@ -20,6 +27,12 @@ int main(int argc, char *argv[]) {
     unsigned short ack_num = 0;
     char last = 0;
     char ack = 0;
+//
+//    // install signal handler
+//    if (signal(SIGALRM, handler) == SIG_ERR) {
+//        printf("Timeout handler install fail.\n");
+//        return 1;
+//    }
 
     // read filename from command line argument
     if (argc != 2) {
@@ -61,6 +74,15 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // set timeout interval for recvfrom function
+    tv.tv_sec = TIMEOUT;
+    tv.tv_usec = 0;
+    if (setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        perror("set socket failed");
+        close(listen_sockfd);
+        return 1;
+    }
+
     // Open file for reading
     FILE *fp = fopen(filename, "rb");
     if (fp == NULL) {
@@ -80,19 +102,31 @@ int main(int argc, char *argv[]) {
     // packet might be loss too. Need timer
     build_packet(&pkt, seq_num, ack_num, last, ack, PAYLOAD_SIZE, buffer);
     if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
-        printf("Cannot send message to server");
+        printf("Cannot send message to server\n");
         return 1;
     }
     printSend(&pkt, 0);
 
     // receive ACK from server, expected ack=1
-    int recv_len;
-    recv_len = recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size);
-    if(recv_len < 0){
-        printf("Cannot receive ACK from server");
-        return 1;
+//    alarm(TIMEOUT);
+    if(recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size) < 0){
+        if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
+            printf("Receiving ACK timeout.\n");
+            // resend the only unACKed packet
+            if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
+                printf("Cannot send message to server\n");
+                return 1;
+            }
+            printSend(&pkt, 1);
+        }
+        else {
+            printf("Cannot receive ACK from server: other situation\n");
+            return 1;
+        }
+    } else { // receive ACK successfully
+        alarm(0);
+        printRecv(&pkt);
     }
-    printRecv(&pkt);
 
     // third handshake and send file size right now
     // obtain the file size
@@ -110,16 +144,38 @@ int main(int argc, char *argv[]) {
     sprintf(buffer, "%d", segment_times);
     build_packet(&pkt, seq_num, ack_num, last, ack, PAYLOAD_SIZE, buffer);
     if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
-        printf("Cannot send message to server");
+        printf("Cannot send message to server\n");
         return 1;
     }
     printSend(&pkt, 0);
 
+    // receive ACK from server, expected ack=2, meaning 4 way handshake completed
+//    alarm(TIMEOUT);
+    if(recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size) < 0){
+        if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
+            printf("Receiving ACK timeout.\n");
+            // resend the third handshake
+            if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
+                printf("Cannot send message to server");
+                return 1;
+            }
+            printSend(&pkt, 1);
+        }
+        else {
+            printf("Cannot receive ACK from server: other situation\n");
+            return 1;
+        }
+    } else { // receive ACK successfully
+//        alarm(0);
+        printRecv(&pkt);
+    }
 
     // partition the file into small segments
     // and send segments to the server
     int packet_len = PAYLOAD_SIZE;
-    for (int i = 0; i < segment_times; i++) {
+    seq_num += 1;
+    int i = 0;
+    while (1) {
         if (i == segment_times - 1) {
             packet_len = file_size - i * PAYLOAD_SIZE;
             last = 1;
@@ -131,20 +187,69 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         printSend(&pkt, 0);
-        // begin a timer
 
-        // wait for ACK
-        recv_len = recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size);
-        if(recv_len < 0){
-            printf("Cannot receive ACK from server");
-            return 1;
+        // wait for ACK, ack_num should be seq_num++
+        if(recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size) < 0){
+            if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
+                printf("Receiving ACK timeout.\n");
+                if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
+                    printf("Cannot send message to server");
+                    return 1;
+                }
+                printSend(&pkt, 1);
+            }
+            else {
+                printf("Cannot receive ACK from server: other situation");
+                return 1;
+            }
+        } else { // receive ACK successfully
+            printRecv(&pkt);
+            if (pkt.acknum == seq_num + 1) {
+                i += 1;
+                seq_num += 1;
+                ack_num = pkt.seqnum + 1;
+            }
         }
-        printRecv(&pkt);
-        if (pkt.acknum == seq_num + 1) {
-            seq_num += 1;
-            ack_num = pkt.seqnum + 1;
+
+        if (i == segment_times) {
+            break;
         }
     }
+//    for (int i = 0; i < segment_times; i++) {
+//        if (i == segment_times - 1) {
+//            packet_len = file_size - i * PAYLOAD_SIZE;
+//            last = 1;
+//        }
+//        strncpy(buffer, file_content + i * PAYLOAD_SIZE, packet_len);
+//        build_packet(&pkt, seq_num, ack_num, last, ack, packet_len, buffer);
+//        if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
+//            printf("Cannot send file segment to server");
+//            return 1;
+//        }
+//        printSend(&pkt, 0);
+//
+//        // wait for ACK, ack_num should be seq_num++
+//        if(recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size) < 0){
+//            if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
+//                printf("Receiving ACK timeout.\n");
+//                if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
+//                    printf("Cannot send message to server");
+//                    return 1;
+//                }
+//                printSend(&pkt, 1);
+//            }
+//            else {
+//                printf("Cannot receive ACK from server: other situation");
+//                return 1;
+//            }
+//        } else { // receive ACK successfully
+//            printRecv(&pkt);
+//            if (pkt.acknum == seq_num + 1) {
+//                seq_num += 1;
+//                ack_num = pkt.seqnum + 1;
+//            } // else do something
+//        }
+//    }
 
     fclose(fp);
     close(listen_sockfd);

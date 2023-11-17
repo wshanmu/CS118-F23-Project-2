@@ -6,6 +6,8 @@
 
 #include "utils.h"
 
+#include <time.h>
+
 int main() {
     int listen_sockfd, send_sockfd;
     struct sockaddr_in server_addr, client_addr_from, client_addr_to;
@@ -52,6 +54,10 @@ int main() {
 
     // Open the target file for writing (always write to output.txt)
     FILE *fp = fopen("output.txt", "wb");
+
+
+    time_t start, end;
+    time(&start);
 
     // TODO: Receive file from the client and save it as output.txt
     while (1) {
@@ -109,7 +115,7 @@ int main() {
                 expected_seq_num += 1;
                 seq_num_server += 1;
                 fwrite(buffer.payload, sizeof(char),buffer.length, fp);
-                printf("Write %d-th segment into outpue file.\n", buffer.seqnum - 1);
+                printf("Write %d-th segment into the output file.\n", buffer.seqnum - 1);
             }
             if (buffer.seqnum >= expected_seq_num - 1) {
                 build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
@@ -126,6 +132,11 @@ int main() {
         }
         break;
     }
+
+    time(&end);
+    double time_taken = end - start;
+    printf ("It took %.2f seconds.\n", time_taken);
+
     fclose(fp);
     close(listen_sockfd);
     close(send_sockfd);

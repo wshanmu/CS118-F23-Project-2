@@ -115,20 +115,19 @@ int main() {
                 expected_seq_num += 1;
                 seq_num_server += 1;
                 fwrite(buffer.payload, sizeof(char),buffer.length, fp);
-                printf("Write %d-th segment into the output file.\n", buffer.seqnum - 1);
-            }
-            if (buffer.seqnum >= expected_seq_num - 1) {
-                build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
-                if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
-                    printf("Cannot send message to server");
-                    return 1;
+                printf("Write %d-th segment into the output file.\n", buffer.seqnum);
+                if (buffer.last == 1) {
+                    break;
                 }
-                printSend(&ack_pkt, 0);
             }
-
-            if (buffer.last == 1) {
-                break;
+//            if (buffer.seqnum >= expected_seq_num - 1) {
+            build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
+            if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+                printf("Cannot send message to server");
+                return 1;
             }
+            printSend(&ack_pkt, 0);
+//            }
         }
         break;
     }

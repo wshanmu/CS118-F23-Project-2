@@ -120,6 +120,7 @@ int main(int argc, char *argv[]) {
         alarm(0);
         printRecv(&pkt);
     }
+    // TODO: reproduce and find the bug in handshaking process
 
     // third handshake and send file size right now
     // obtain the file size
@@ -177,6 +178,8 @@ int main(int argc, char *argv[]) {
                 packet_len = file_size - (i-2) * PAYLOAD_SIZE;
                 last = 1;
                 printf("Going to send the last packet.\n");
+            } else {
+                last = 0;
             }
             strncpy(buffer, file_content + (i-2) * PAYLOAD_SIZE, packet_len);
             build_packet(&pkt, i, ack_num, last, ack, packet_len, buffer);
@@ -189,16 +192,15 @@ int main(int argc, char *argv[]) {
         }
 
         // wait for ACK, ack_num should be seq_num++
+        int j = 0; // for fast retransmission
         while (1) {
             if(recvfrom(listen_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size) < 0){
                 if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
                     printf("Receiving ACK timeout.\n");
+                    cwnd = 1;
+                    i = wnd_left;
+                    wnd_right = wnd_left + cwnd;
                     break;
-//                    if(sendto(send_sockfd, (void*) &pkt, sizeof(pkt), 0, (struct sockaddr*)&server_addr_to, addr_size) < 0){
-//                        printf("Cannot send message to server");
-//                        return 1;
-//                    }
-//                    printSend(&pkt, 1);
                 }
                 else {
                     printf("Cannot receive ACK from server: other situation");
@@ -208,6 +210,9 @@ int main(int argc, char *argv[]) {
                 printRecv(&pkt);
                 if (pkt.acknum >= wnd_left + 1) { // receive an in-order ACK, also could be a cumulated ACK
                     int move_step = pkt.acknum - wnd_left;
+                    if (cwnd < 10) {
+                        cwnd += 1;
+                    }
                     wnd_left = pkt.acknum;
                     wnd_right = (wnd_left + cwnd > largest_seq_num)? largest_seq_num + 1 : wnd_left + cwnd; // in my setting, wnd_right is somehow like the pointer pointing to the next packet after the current sending window, so need to add 1 here
                     ack_num = pkt.seqnum + 1;
@@ -215,14 +220,22 @@ int main(int argc, char *argv[]) {
                 }
                 if (pkt.acknum == i) {  // if all packets and ACKs have been received
                     ack_num = pkt.seqnum + 1;
+                    cwnd += 1;
+                    wnd_right = wnd_left + cwnd;
                     printf("All Packets have been received.\n");
                     break;
                 }
                 if (pkt.acknum == wnd_left) { // P1 lost, P2 received, send A1, A1 means P1 lost
-                    ack_num = pkt.seqnum + 1;
-                    i = wnd_left;
-                    printf("Packet %d should lost.\n", wnd_left);
-                    break;
+                    j += 1;
+                    if (j == 3) {
+                        j = 0;
+                        ack_num = pkt.seqnum + 1;
+                        i = wnd_left;
+                        printf("Packet %d should lost.\n", wnd_left);
+                        // TODO: should introduce fast retransmission mechanism
+                        break;
+                    }
+
                 }
             }
         }

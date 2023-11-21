@@ -40,15 +40,34 @@ void build_packet(struct packet* pkt, unsigned short seqnum, unsigned short ackn
 }
 
 // Utility function to print a packet
-void printRecv(struct packet* pkt) {
-    printf("RECV seq:%d ack:%d%s%s\n", pkt->seqnum, pkt->acknum, pkt->last ? " LAST": "", (pkt->ack) ? " ACK": "");
+void printRecv(struct packet* pkt, int side) {
+    if (side == 0) { // client，I only care about the ACK
+        printf("RECV ack:%d%s%s\n", pkt->acknum, pkt->last ? " LAST": "", (pkt->ack) ? " ACK": "");
+    } else if (side == 1) { // server, I only care about the seq
+        printf("RECV seq:%d%s%s\n", pkt->seqnum, pkt->last ? " LAST": "", (pkt->ack) ? " ACK": "");
+    } else {
+        printf("RECV seq:%d ack:%d%s%s\n", pkt->seqnum, pkt->acknum, pkt->last ? " LAST": "", (pkt->ack) ? " ACK": "");
+    }
 }
 
-void printSend(struct packet* pkt, int resend) {
-    if (resend)
-        printf("RESEND seq:%d ack:%d%s%s\n", pkt->seqnum, pkt->acknum, pkt->last ? " LAST": "", pkt->ack ? " ACK": "");
-    else
-        printf("SEND seq:%d ack:%d%s%s\n", pkt->seqnum, pkt->acknum, pkt->last ? " LAST": "", pkt->ack ? " ACK": "");
+void printSend(struct packet* pkt, int resend, int side) {
+    if (side == 0) {
+        if (resend)
+            printf("RESEND seq:%d %s%s\n", pkt->seqnum, pkt->last ? " LAST": "", pkt->ack ? " ACK": "");
+        else
+            printf("SEND seq:%d %s%s\n", pkt->seqnum, pkt->last ? " LAST": "", pkt->ack ? " ACK": "");
+    } else if (side == 1) {
+        if (resend)
+            printf("RESEND ack:%d%s%s\n", pkt->acknum, pkt->last ? " LAST": "", pkt->ack ? " ACK": "");
+        else
+            printf("SEND ack:%d%s%s\n", pkt->acknum, pkt->last ? " LAST": "", pkt->ack ? " ACK": "");
+    } else {
+        if (resend)
+            printf("RESEND seq:%d ack:%d%s%s\n", pkt->seqnum, pkt->acknum, pkt->last ? " LAST": "", pkt->ack ? " ACK": "");
+        else
+            printf("SEND seq:%d ack:%d%s%s\n", pkt->seqnum, pkt->acknum, pkt->last ? " LAST": "", pkt->ack ? " ACK": "");
+    }
+
 }
 
 #endif

@@ -111,7 +111,7 @@ int main(int argc, char *argv[]) {
     float cwnd_f = 1;
     int wnd_left = seq_num;
     int wnd_right = wnd_left + cwnd;
-    int ssh = 10;
+    int ssh = 5;
     int j = 0; // for fast retransmission
     int fr_flag = 0; // FR flag
     while (1) {
@@ -150,23 +150,28 @@ int main(int argc, char *argv[]) {
                 }
             } else { // receive ACK successfully
                 printRecv(&ack_pkt, 0);
+                int move_step = 0;
                 if (ack_pkt.acknum >= wnd_left + 1) { // receive an in-order ACK, also could be a cumulated ACK
                     if (fr_flag) {
                         fr_flag = 0;
                         cwnd = ssh + 1;
+                        printf("New ACK received, end FR.\n");
                     } else {
-                        int move_step = ack_pkt.acknum - wnd_left;
+                        move_step = ack_pkt.acknum - wnd_left;
                         if (cwnd <= ssh) {
                             cwnd += 1;
+                            printf("Slow Start. cwnd+=1\n");
                         } else {
                             cwnd_f = cwnd + 1 / cwnd;
                             cwnd = (int) cwnd_f;
+                            printf("Congestion Avoidance.\n");
                         }
-                        printf("Move Congestion Window by %d Packet. Current window is [%d, %d]\n", move_step, wnd_left, wnd_right - 1);
                     }
                     wnd_left = ack_pkt.acknum;
                     wnd_right = (wnd_left + cwnd > largest_seq_num)? largest_seq_num + 1 : wnd_left + cwnd;
                     ack_num = ack_pkt.seqnum + 1;
+                    printf("Move Congestion Window by %d Packet. Current window is [%d, %d]\n", move_step, wnd_left, wnd_right - 1);
+                    break;
                 }
                 if (ack_pkt.acknum == seq_num) {  // if all packets and ACKs have been received
                     ack_num = ack_pkt.seqnum + 1;
@@ -192,6 +197,7 @@ int main(int argc, char *argv[]) {
                     } else { // 4th 5th dup ACK, Fast Recovery
                         cwnd += 1;
                         wnd_right = (wnd_left + cwnd > largest_seq_num)? largest_seq_num + 1 : wnd_left + cwnd;
+                        printf("One more duplicated packet, Fast Recovery.\n");
                         break;
                     }
                 }

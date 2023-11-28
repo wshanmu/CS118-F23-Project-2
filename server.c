@@ -58,8 +58,7 @@ int main() {
 
     time_t start, end;
     time(&start);
-    struct packet receive_buffer[10];
-    int buffer_len = 0;
+    struct packet receive_buffer[100];
     int store_flag = 0;
     int store_wnd_right = 0, store_wnd_left = 0; // this is indicated by seq_num
     int store_wnd_start = 0;
@@ -78,7 +77,7 @@ int main() {
         if (buffer.seqnum < expected_seq_num) {
             build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
             if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
-                printf("Cannot send message to client");
+                printf("Cannot send message to client1");
                 return 1;
             }
             printSend(&ack_pkt, 0, 1);
@@ -88,14 +87,13 @@ int main() {
                 printf("Write Packet-%d.\n", buffer.seqnum);
                 for (int i = store_wnd_left; i <= store_wnd_right; i++) {
                     fwrite(receive_buffer[i - store_wnd_start].payload, sizeof(char),receive_buffer[i - store_wnd_start].length, fp);
-                    fwrite("", sizeof(char), 0, fp); // for debug only
                     printf("Write Packet-%d Last: %d.\n", receive_buffer[i - store_wnd_start].seqnum, receive_buffer[i - store_wnd_start].last);
                 }
                 expected_seq_num += (store_wnd_right - store_wnd_left + 1 + 1);
                 seq_num_server += 1;
                 build_packet(&ack_pkt, seq_num_server, expected_seq_num, receive_buffer[store_wnd_right - store_wnd_start].last, 1, PAYLOAD_SIZE, payload);
                 if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
-                    printf("Cannot send message to server");
+                    printf("Cannot send message to client2");
                     return 1;
                 }
                 printSend(&ack_pkt, 0, 1);
@@ -110,7 +108,7 @@ int main() {
                 printf("Write Packet-%d.\n", buffer.seqnum);
                 build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
                 if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
-                    printf("Cannot send message to server");
+                    printf("Cannot send message to client3");
                     return 1;
                 }
                 printSend(&ack_pkt, 0, 1);
@@ -134,7 +132,7 @@ int main() {
             }
             build_packet(&ack_pkt, seq_num_server, expected_seq_num, 0, 1, PAYLOAD_SIZE, payload); // because out-of-order, current ACK must not the last ACK
             if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
-                printf("Cannot send message to server");
+                printf("Cannot send message to client4");
                 return 1;
             }
             printSend(&ack_pkt, 0, 1);

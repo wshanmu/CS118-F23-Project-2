@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
 //            printSend(&pkt, 0, 0);
-            usleep(100);
+//            usleep(100);
         }
 
         while (1) {

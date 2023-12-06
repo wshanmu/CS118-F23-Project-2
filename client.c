@@ -79,8 +79,8 @@ int main(int argc, char *argv[]) {
         close(send_sockfd);
         return 1;
     }
-
-//    freopen("client_output_message.txt", "w", stdout); // redirect stdout to a file
+    int print_flag = 0;
+    if (print_flag) { freopen("client_output_message.txt", "w", stdout); } // redirect stdout to a file
 
     // obtain the file size
     fseek(fp, 0, SEEK_END);  // set file indicator to the end of the file
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
     if (file_size % PAYLOAD_SIZE != 0) {
         packet_num += 1;
     }
-//    printf("Packet number is: %d.\n", packet_num);
+    if (print_flag) { printf("Packet number is: %d.\n", packet_num);}
 
     // partition the file into small segments and send segments to the server
     int packet_len = PAYLOAD_SIZE;
@@ -108,13 +108,13 @@ int main(int argc, char *argv[]) {
     int move_step = 0;
     int sent_largest_seq = -1;
     while (1) {
-//        printf("Begin Sending Packet in Window: [%d, %d]\n", wnd_left, wnd_right-1);
+        if (print_flag) { printf("Begin Sending Packet in Window: [%d, %d]\n", wnd_left, wnd_right-1); }
         for (; seq_num < wnd_right; seq_num++) {   // send all packets in the congestion window
             if (seq_num > sent_largest_seq) {
                 if (seq_num == largest_seq_num) {
                     packet_len = file_size - (seq_num) * PAYLOAD_SIZE;
                     last = 1;
-//                    printf("Going to send the last packet.\n");
+                    if (print_flag) { printf("Going to send the last packet.\n");}
                 } else {
                     packet_len = PAYLOAD_SIZE;
                     last = 0;
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
                     printf("Cannot send file segment to server");
                     return 1;
                 }
-//                printSend(&pkt, 0, 0);
+                if (print_flag) { printSend(&pkt, 0, 0);}
                 if (seq_num > sent_largest_seq) {
                     sent_largest_seq = seq_num;
                 }
@@ -135,7 +135,7 @@ int main(int argc, char *argv[]) {
         while (1) {
             if(recvfrom(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size) < 0){   // wait for ACK, ack_num should be seq_num++
                 if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
-//                    printf("Receiving ACK timeout.\n");
+                    if (print_flag) { printf("Receiving ACK timeout.\n");}
                     ssh = cwnd/2 > 2? cwnd/2 : 2;
                     cwnd = 1;
                     seq_num = wnd_left;
@@ -145,7 +145,7 @@ int main(int argc, char *argv[]) {
                     if (seq_num == largest_seq_num) {
                         packet_len = file_size - (seq_num) * PAYLOAD_SIZE;
                         last = 1;
-//                        printf("Going to resend the last packet.\n");
+                        if (print_flag) { printf("Going to resend the last packet.\n");}
                     } else {
                         packet_len = PAYLOAD_SIZE;
                         last = 0;
@@ -156,36 +156,38 @@ int main(int argc, char *argv[]) {
                         printf("Cannot send file segment to server");
                         return 1;
                     }
-//                    printSend(&pkt, 1, 0);
+//                    j = 0;
+                    fr_flag = 1;
+                    if (print_flag) { printSend(&pkt, 1, 0); }
                     break;
                 }
                 else {
                     printf("Cannot receive ACK from server: other situation"); return 1;
                 }
             } else { // receive ACK successfully
-//                printRecv(&ack_pkt, 0);
+                if (print_flag) { printRecv(&ack_pkt, 0); }
                 if (ack_pkt.acknum > wnd_left) { // receive an in-order ACK, also could be a cumulated ACK
                     if (fr_flag) {
                         fr_flag = 0;
                         cwnd = ssh + 1;
-//                        printf("New ACK received, end FR.\n");
+                        if (print_flag) { printf("New ACK received, end FR.\n");}
                         wnd_left = ack_pkt.acknum;
                         wnd_right = (wnd_left + cwnd > largest_seq_num)? largest_seq_num + 1 : wnd_left + cwnd;
                     } else {
                         move_step = ack_pkt.acknum - wnd_left;
                         if (cwnd <= ssh) {
                             cwnd += 1;
-//                            printf("Slow Start. cwnd+=1\n");
+                            if (print_flag) { printf("Slow Start. cwnd+=1\n");}
                         } else {
                             cwnd_f = cwnd_f + (float)1 / (float)cwnd;
                             cwnd = (int) cwnd_f;
-//                            printf("Congestion Avoidance. Current cwnd: %d, cwnd_f: %f\n", cwnd, cwnd_f);
+                            if (print_flag) { printf("Congestion Avoidance. Current cwnd: %d, cwnd_f: %f\n", cwnd, cwnd_f);}
                         }
                         wnd_left = ack_pkt.acknum;
                         wnd_right = (wnd_left + cwnd > largest_seq_num)? largest_seq_num + 1 : wnd_left + cwnd;
                         ack_num = ack_pkt.seqnum + 1;
                     }
-//                    printf("Move Congestion Window by %d Packet. Current window is [%d, %d]\n", move_step, wnd_left, wnd_right - 1);
+                    if (print_flag) { printf("Move Congestion Window by %d Packet. Current window is [%d, %d]\n", move_step, wnd_left, wnd_right - 1);}
                     break;
                 }
                 if (ack_pkt.acknum == wnd_left) { // P1 lost, P2 received, send A1, A1 means P1 lost
@@ -199,11 +201,11 @@ int main(int argc, char *argv[]) {
                             ack_num = ack_pkt.seqnum + 1;
                             seq_num = wnd_left;
                             wnd_right = (wnd_left + cwnd > largest_seq_num)? largest_seq_num + 1 : wnd_left + cwnd;
-//                            printf("Packet %d should lost.\n", wnd_left);
+                            if (print_flag) { printf("Packet %d should lost.\n", wnd_left); }
                             if (seq_num == largest_seq_num) {
                                 packet_len = file_size - (seq_num) * PAYLOAD_SIZE;
                                 last = 1;
-//                                printf("Going to send the last packet.\n");
+                                if (print_flag) { printf("Going to send the last packet.\n"); }
                             } else {
                                 packet_len = PAYLOAD_SIZE;
                                 last = 0;
@@ -214,12 +216,12 @@ int main(int argc, char *argv[]) {
                                 printf("Cannot send file segment to server");
                                 return 1;
                             }
-//                            printSend(&pkt, 1, 0);
+                            if (print_flag) { printSend(&pkt, 1, 0);}
                         }
                     } else { // 4th 5th dup ACK, Fast Recovery
                         cwnd += 1;
                         wnd_right = (wnd_left + cwnd > largest_seq_num)? largest_seq_num + 1 : wnd_left + cwnd;
-//                        printf("One more duplicated packet, Fast Recovery.\n");
+                        if (print_flag) { printf("One more duplicated packet, Fast Recovery.\n"); }
                         break;
                     }
                 }

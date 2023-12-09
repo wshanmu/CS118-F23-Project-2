@@ -11,10 +11,12 @@
 #define CLIENT_PORT 6001
 #define SERVER_PORT 6002
 #define CLIENT_PORT_TO 5001
-#define PAYLOAD_SIZE 1024
+#define PAYLOAD_SIZE 1099
 #define WINDOW_SIZE 5
-#define TIMEOUT 2
+#define TIMEOUT 0
+#define TIMEOUT_MS 500000
 #define MAX_SEQUENCE 1024
+#define print_flag 0
 
 
 

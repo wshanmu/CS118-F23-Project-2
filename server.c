@@ -55,10 +55,12 @@ int main() {
 
     // Open the target file for writing (always write to output.txt)
     FILE *fp = fopen("output.txt", "wb");
-//    freopen("server_output_message.txt", "w", stdout); // redirect stdout to a file
-
     time_t start, end;
-    time(&start);
+    if (print_flag) {
+        freopen("server_output_message.txt", "w", stdout); // redirect stdout to a file
+        time(&start);
+    }
+
     struct packet receive_buffer[100];
     for (int i = 0; i < 100; i++) {
         receive_buffer[i].ack = 1; // packet received always has ack = 0, so this indicates no those in-store packets
@@ -67,57 +69,59 @@ int main() {
     int store_wnd_right = 0, store_wnd_left = 0; // this is indicated by seq_num
     int store_wnd_start = 0;
 
-//    printf("Start to work...\n");
-
-    // set timeout interval for recvfrom function
-    struct timeval tv;
-    tv.tv_sec = TIMEOUT;
-    tv.tv_usec = 0;
-    if (setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-        perror("set socket failed");
-        close(listen_sockfd);
-        return 1;
-    }
+//    // set timeout interval for recvfrom function
+//    struct timeval tv;
+//    tv.tv_sec = TIMEOUT;
+//    tv.tv_usec = 0;
+//    tv.tv_usec = TIMEOUT_MS * 1.2;
+//    if (setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+//        perror("set socket failed");
+//        close(listen_sockfd);
+//        return 1;
+//    }
 
     while (1) {
         if (recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *) &client_addr_from, &addr_size) < 0) {
             if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
-//                printf("Didn't wait for the expected packet. ACK probably lost.\n");
-                if (expected_seq_num != 0) {
+                if (expected_seq_num > 1) {
+                    ack_pkt.acknum = expected_seq_num;
                     if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
                         printf("Cannot send message to client");
                         return 1;
                     }
+                    if (print_flag) { printf("Didn't wait for the expected packet. ACK probably lost.\n"); }
+                    if (print_flag) { printSend(&ack_pkt, 1, 1);}
                 }
                 continue;
             }
             else { printf("Cannot receive packet from client: other situation"); return 1; }
         } else {
-//            printRecv(&buffer, 1);
+            if (print_flag) { printRecv(&buffer, 1);}
             if (buffer.seqnum < expected_seq_num) {
+                if (print_flag) { printf("Receive an old packet.\n");}
                 build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
                 if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
                     printf("Cannot send message to client1"); return 1;
                 }
-//                printSend(&ack_pkt, 0, 1);
+                if (print_flag) { printSend(&ack_pkt, 0, 1);}
             } else if (buffer.seqnum == expected_seq_num) { // if receive in-order packet
                 fwrite(buffer.payload, sizeof(char),buffer.length, fp);
                 expected_seq_num += 1;
-//                printf("This is an in-order packet. Write Packet-%d.\n", buffer.seqnum);
+                if (print_flag) { printf("This is an in-order packet. Write Packet-%d.\n", buffer.seqnum);}
                 if (store_len > 0 && store_wnd_left == expected_seq_num) {  // if have stored next several packets
-                    for (int i = store_wnd_left; i <= store_wnd_right; i++) {
+                    for (int i = store_wnd_left; i <= store_wnd_right + 1; i++) {
                         if (!receive_buffer[i - store_wnd_start].ack) {
                             fwrite(receive_buffer[i - store_wnd_start].payload, sizeof(char),receive_buffer[i - store_wnd_start].length, fp);
                             receive_buffer[i - store_wnd_start].ack = 1;
                             expected_seq_num += 1;
                             store_len -= 1;
-//                            printf("Write in-store Packet-%d.\n", receive_buffer[i - store_wnd_start].seqnum);
+                            if (print_flag) { printf("Write in-store Packet-%d.\n", receive_buffer[i - store_wnd_start].seqnum);}
                         } else { // didn't store the packet
                             // update store_wnd_left
                             for (int j = i; j <= store_wnd_right; j++) {
                                 if (!receive_buffer[j - store_wnd_start].ack) {
                                     store_wnd_left = receive_buffer[j - store_wnd_start].seqnum;
-//                                    printf("Update store_wnd_left to %d\n", store_wnd_left);
+                                    if (print_flag) { printf("Update store_wnd_left to %d\n", store_wnd_left);}
                                     break;
                                 }
                             }
@@ -128,7 +132,7 @@ int main() {
                                 printf("Cannot send message to client2");
                                 return 1;
                             }
-//                            printSend(&ack_pkt, 0, 1);
+                            if (print_flag) { printSend(&ack_pkt, 0, 1);}
                             break;
                         }
                     }
@@ -142,13 +146,13 @@ int main() {
                         printf("Cannot send message to client3");
                         return 1;
                     }
-//                    printSend(&ack_pkt, 0, 1);
+                    if (print_flag) { printSend(&ack_pkt, 0, 1);}
                     if (buffer.last == 1) {  // For running time optimization, could move it before sending the last ACK. However, the last ACK help client to exit normally (even it might be loss and then the client cannot exit either)
                         break;
                     }
                 }
             } else { // seq_num > expected, out-of-order packets
-//                printf("Receive out-of-order packet: %d.\n", buffer.seqnum);
+                if (print_flag) { printf("Receive out-of-order packet: %d.\n", buffer.seqnum);}
                 if (store_len == 0) {
                     store_wnd_start = expected_seq_num;
                     receive_buffer[buffer.seqnum - store_wnd_start] = buffer;
@@ -167,20 +171,22 @@ int main() {
                         store_len += 1;
                     }
                 }
-//                printf("Current store window is [%d, %d]\n", store_wnd_left, store_wnd_right);
+                if (print_flag) { printf("Current store window is [%d, %d]\n", store_wnd_left, store_wnd_right);}
                 build_packet(&ack_pkt, seq_num_server, expected_seq_num, 0, 1, PAYLOAD_SIZE, payload); // because out-of-order, current ACK must not the last ACK
                 if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
                     printf("Cannot send message to client4");
                     return 1;
                 }
-//                printSend(&ack_pkt, 0, 1);
+                if (print_flag) { printSend(&ack_pkt, 0, 1);}
             }
         }
     }
+    if (print_flag) {
+        time(&end);
+        double time_taken = end - start;
+        printf("It took %.2f seconds.\n", time_taken);
+    }
 
-    time(&end);
-    double time_taken = end - start;
-    printf("It took %.2f seconds.\n", time_taken);
 
     fclose(fp);
     fclose(stdout);

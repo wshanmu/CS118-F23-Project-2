@@ -68,18 +68,7 @@ int main() {
     int store_len = 0;
     int store_wnd_right = 0, store_wnd_left = 0; // this is indicated by seq_num
     int store_wnd_start = 0;
-
-//    // set timeout interval for recvfrom function
-//    struct timeval tv;
-//    tv.tv_sec = TIMEOUT;
-//    tv.tv_usec = 0;
-//    tv.tv_usec = TIMEOUT_MS * 1.2;
-//    if (setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-//        perror("set socket failed");
-//        close(listen_sockfd);
-//        return 1;
-//    }
-
+    int i = 0; // for indexing the store window
     while (1) {
         if (recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *) &client_addr_from, &addr_size) < 0) {
             if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
@@ -95,7 +84,7 @@ int main() {
                 continue;
             }
             else { printf("Cannot receive packet from client: other situation"); return 1; }
-        } else {
+        } else {  // successfully receive an packet
             if (print_flag) { printRecv(&buffer, 1);}
             if (buffer.seqnum < expected_seq_num) {
                 if (print_flag) { printf("Receive an old packet.\n");}
@@ -104,12 +93,16 @@ int main() {
                     printf("Cannot send message to client1"); return 1;
                 }
                 if (print_flag) { printSend(&ack_pkt, 0, 1);}
-            } else if (buffer.seqnum == expected_seq_num) { // if receive in-order packet
+            } else if (buffer.seqnum == expected_seq_num) {
+                // if receive in-order packet
                 fwrite(buffer.payload, sizeof(char),buffer.length, fp);
                 expected_seq_num += 1;
                 if (print_flag) { printf("This is an in-order packet. Write Packet-%d.\n", buffer.seqnum);}
-                if (store_len > 0 && store_wnd_left == expected_seq_num) {  // if have stored next several packets
-                    for (int i = store_wnd_left; i <= store_wnd_right + 1; i++) {
+//                if (buffer.last == 1) {break;}
+
+                // if have stored next several packets
+                if (store_len > 0 && store_wnd_left == expected_seq_num) {
+                    for (i = store_wnd_left; i <= store_wnd_right + 1; i++) {
                         if (!receive_buffer[i - store_wnd_start].ack) {
                             fwrite(receive_buffer[i - store_wnd_start].payload, sizeof(char),receive_buffer[i - store_wnd_start].length, fp);
                             receive_buffer[i - store_wnd_start].ack = 1;
@@ -127,7 +120,7 @@ int main() {
                             }
                             // send a cumulative ACK
                             seq_num_server += 1;
-                            build_packet(&ack_pkt, seq_num_server, expected_seq_num, receive_buffer[store_wnd_right - store_wnd_start].last, 1, PAYLOAD_SIZE, payload);
+                            build_packet(&ack_pkt, seq_num_server, expected_seq_num, 0, 1, PAYLOAD_SIZE, payload);
                             if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
                                 printf("Cannot send message to client2");
                                 return 1;
@@ -136,7 +129,7 @@ int main() {
                             break;
                         }
                     }
-                    if (receive_buffer[store_wnd_right - store_wnd_start].last == 1) {
+                    if (receive_buffer[i - 1 - store_wnd_start].last == 1) {
                         break;
                     }
                 } else { // no in-store packet or the stored packets are not consequent to the current one
@@ -147,7 +140,7 @@ int main() {
                         return 1;
                     }
                     if (print_flag) { printSend(&ack_pkt, 0, 1);}
-                    if (buffer.last == 1) {  // For running time optimization, could move it before sending the last ACK. However, the last ACK help client to exit normally (even it might be loss and then the client cannot exit either)
+                    if (buffer.last == 1) {
                         break;
                     }
                 }

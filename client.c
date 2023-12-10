@@ -3,10 +3,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <time.h>
+//#include <time.h>
+#include <sys/time.h>
 #include <sys/errno.h>
+#include <signal.h>
 
 #include "utils.h"
+
+void handle_alarm(int sig) {
+    // Signal handler functionality
+    printf("Receiving ACK timeout for the last sending window.\n");
+}
 
 
 int main(int argc, char *argv[]) {
@@ -62,14 +69,28 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // set timeout interval for recvfrom function
-    tv.tv_sec = TIMEOUT + 1;
-    tv.tv_usec = TIMEOUT_MS;
-    if (setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-        perror("set socket failed");
-        close(listen_sockfd);
-        return 1;
-    }
+//    // set timeout interval for recvfrom function
+//    tv.tv_sec = TIMEOUT;
+//    tv.tv_usec = TIMEOUT_MS;
+//    if (setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+//        perror("set socket failed");
+//        close(listen_sockfd);
+//        return 1;
+//    }
+
+    struct sigaction sa;
+    sa.sa_handler = handle_alarm;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGALRM, &sa, NULL);
+
+    struct itimerval timer;
+    timer.it_value.tv_sec = 0; // Seconds
+    timer.it_value.tv_usec = TIMEOUT_MS; // Microseconds
+    timer.it_interval.tv_sec = 0; // Seconds for repeating
+    timer.it_interval.tv_usec = 0; // Microseconds for repeating
+
+
 
     // Open file for reading
     FILE *fp = fopen(filename, "rb");
@@ -108,22 +129,12 @@ int main(int argc, char *argv[]) {
     int cnt = 0; // for congestion avoidance
 
     // parameters
-    int ssh = 15;
-    double degrade_factor = 0.8;
+    int ssh = 18;
+    double degrade_factor = 0.85;
     double degrade_factor_timeout = 0.7;
     int dup_num = 2;
 
     while (1) {
-        if (seq_num >= 10) {
-            tv.tv_sec = TIMEOUT;
-            tv.tv_usec = TIMEOUT_MS;
-            if (setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-                perror("set socket failed");
-                close(listen_sockfd);
-                return 1;
-            }
-        }
-
         if (print_flag) { printf("Begin Sending Packet in Window: [%d, %d]\n", wnd_left, wnd_right-1); }
         for (; seq_num < wnd_right; seq_num++) {   // send all packets in the congestion window
             if (seq_num > sent_largest_seq) {
@@ -147,10 +158,10 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-
+        setitimer(ITIMER_REAL, &timer, NULL);
         while (1) {
             if(recvfrom(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&server_addr_from, &addr_size) < 0){   // wait for ACK, ack_num should be seq_num++
-                if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
+                if (errno == EINTR) {  // fail to receive ACK within TIMEOUT seconds
                     if (print_flag) { printf("Receiving ACK timeout. Current cwnd: %d\n", cwnd);}
                     ssh = degrade_factor_timeout * cwnd > 2 ? degrade_factor_timeout * cwnd : 2;
                     cwnd = 1;

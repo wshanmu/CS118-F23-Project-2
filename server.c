@@ -68,7 +68,7 @@ int main() {
     int store_len = 0;
     int store_wnd_right = 0, store_wnd_left = 0; // this is indicated by seq_num
     int store_wnd_start = 0;
-    int i = 0; // for indexing the store window
+    int i; // for indexing the store window
     while (1) {
         if (recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *) &client_addr_from, &addr_size) < 0) {
             if (errno == EAGAIN) {  // fail to receive ACK within TIMEOUT seconds
@@ -89,8 +89,8 @@ int main() {
             if (buffer.seqnum < expected_seq_num) {
                 if (print_flag) { printf("Receive an old packet.\n");}
                 build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
-                if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
-                    printf("Cannot send message to client1"); return 1;
+                while (sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+                    printf("Cannot send message to client1");
                 }
                 if (print_flag) { printSend(&ack_pkt, 0, 1);}
             } else if (buffer.seqnum == expected_seq_num) {
@@ -98,8 +98,6 @@ int main() {
                 fwrite(buffer.payload, sizeof(char),buffer.length, fp);
                 expected_seq_num += 1;
                 if (print_flag) { printf("This is an in-order packet. Write Packet-%d.\n", buffer.seqnum);}
-//                if (buffer.last == 1) {break;}
-
                 // if have stored next several packets
                 if (store_len > 0 && store_wnd_left == expected_seq_num) {
                     for (i = store_wnd_left; i <= store_wnd_right + 1; i++) {
@@ -121,9 +119,8 @@ int main() {
                             // send a cumulative ACK
                             seq_num_server += 1;
                             build_packet(&ack_pkt, seq_num_server, expected_seq_num, 0, 1, PAYLOAD_SIZE, payload);
-                            if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+                            while (sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
                                 printf("Cannot send message to client2");
-                                return 1;
                             }
                             if (print_flag) { printSend(&ack_pkt, 0, 1);}
                             break;
@@ -135,9 +132,8 @@ int main() {
                 } else { // no in-store packet or the stored packets are not consequent to the current one
                     seq_num_server += 1;
                     build_packet(&ack_pkt, seq_num_server, expected_seq_num, buffer.last, 1, PAYLOAD_SIZE, payload);
-                    if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+                    while (sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
                         printf("Cannot send message to client3");
-                        return 1;
                     }
                     if (print_flag) { printSend(&ack_pkt, 0, 1);}
                     if (buffer.last == 1) {
@@ -166,9 +162,8 @@ int main() {
                 }
                 if (print_flag) { printf("Current store window is [%d, %d]\n", store_wnd_left, store_wnd_right);}
                 build_packet(&ack_pkt, seq_num_server, expected_seq_num, 0, 1, PAYLOAD_SIZE, payload); // because out-of-order, current ACK must not the last ACK
-                if(sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
+                while (sendto(listen_sockfd, (void*) &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr*)&client_addr_to, addr_size) < 0){
                     printf("Cannot send message to client4");
-                    return 1;
                 }
                 if (print_flag) { printSend(&ack_pkt, 0, 1);}
             }
@@ -179,8 +174,6 @@ int main() {
         double time_taken = end - start;
         printf("It took %.2f seconds.\n", time_taken);
     }
-
-
     fclose(fp);
     fclose(stdout);
     close(listen_sockfd);
